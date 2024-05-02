@@ -3,6 +3,9 @@ import torch
 from torch.utils.data import Dataset
 import os
 import tqdm
+import wandb
+import numpy as np
+
 
 class SegmentationDataset(Dataset):
     def __init__(self, img_dir, mask_dir, num_classes, img_transform=None, mask_transform=None, images=None):
@@ -40,7 +43,6 @@ class SegmentationDataset(Dataset):
         return image, mask
 
 
-
 def train(model, train_loader, criterion, optimizer, epoch, device):
     model.train()
     running_loss = 0
@@ -55,13 +57,22 @@ def train(model, train_loader, criterion, optimizer, epoch, device):
         optimizer.step()
         running_loss += loss.item()
 
+    wandb.log({"train_loss": running_loss/len(train_loader)})
     print(f'\nTrain set: Average loss: {running_loss/len(train_loader):.6f}')
+
+
+def calculate_miou(target, predicted):
+    intersection = np.logical_and(target, predicted)
+    union = np.logical_or(target, predicted)
+    iou_score = np.sum(intersection) / np.sum(union)
+    return iou_score
 
 
 def validation(model, criterion, valid_loader, device):
     model.eval()
     running_loss = 0
     correct = 0
+    total_iou = 0
 
     with torch.no_grad():
         for data, target in tqdm.tqdm(valid_loader, total=len(valid_loader), desc="Validation Loop"):
@@ -69,8 +80,15 @@ def validation(model, criterion, valid_loader, device):
             output = model(data)
             loss = criterion(output, target)
             running_loss += loss.item()
-            _, predicted = torch.max(output.data, 1)
+            _, predicted = torch.max(output, 1)
+            correct += (predicted == target).sum().item()
+            # Calculate mIoU
+            iou_score = calculate_miou(target.cpu().numpy(), predicted.cpu().numpy())
+            total_iou += iou_score
 
+    wandb.log({"val_loss": running_loss/len(valid_loader)})
+    wandb.log({"val_accuracy": correct/len(valid_loader)})
+    wandb.log({"val_mIoU": total_iou/len(valid_loader)})
     print(f'\nValidation set: Average loss: {running_loss/len(valid_loader):.6f}')
 
 
