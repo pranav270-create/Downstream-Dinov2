@@ -1,20 +1,8 @@
 from PIL import Image
 import torch
 from torch.utils.data import Dataset
-import torchvision.transforms as transforms
-from torchvision.transforms import functional as F
-import numpy as np
 import os
-from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader
-from torch import optim
-from tqdm import tqdm
-import torch.nn.functional as F
-from model import Segmentor
-from scipy.ndimage import zoom
-import matplotlib.pyplot as plt
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+import tqdm
 
 class SegmentationDataset(Dataset):
     def __init__(self, img_dir, mask_dir, num_classes, img_transform=None, mask_transform=None, images=None):
@@ -43,62 +31,47 @@ class SegmentationDataset(Dataset):
         if self.img_transform:
             image = self.img_transform(image)
         if self.mask_transform:
-            mask = self.mask_transform(mask) * 255
-        # Create a tensor to hold the binary masks
-        bin_mask = torch.zeros(self.num_classes, mask.shape[1], mask.shape[2])
+            mask = (self.mask_transform(mask) * 255).long()
 
-        # Ensure mask is a torch tensor and is in the same device as bin_mask
-        mask = torch.from_numpy(np.array(mask)).to(bin_mask.device)
-        
-        # Convert mask to type float for comparison
-        mask = mask.float()
-
-        for i in range(self.num_classes):
-            bin_mask[i] = (mask == i).float()  # Ensure resulting mask is float type
-
-        return image, bin_mask
+        mask, _ = torch.max(mask, dim=0)
+        # bin_mask = torch.zeros(self.num_classes, mask.shape[0], mask.shape[1])
+        # for i in range(self.num_classes):
+            # bin_mask[i] = (mask == i).float()  # Ensure resulting mask is float type
+        return image, mask
 
 
 
-def train(model, train_loader, criterion, optimizer, epoch):
+def train(model, train_loader, criterion, optimizer, epoch, device):
     model.train()
-    loop = tqdm(train_loader, total=len(train_loader))
     running_loss = 0
-    correct = 0
 
-    for batch_idx, (data, target) in enumerate(loop):
-        # print(batch_idx) 
+    for batch_idx, (data, target) in tqdm.tqdm(enumerate(train_loader), total=len(train_loader), desc="Training Loop"):
         data, target = data.to(device), target.to(device)
-
         optimizer.zero_grad()
         output = model(data)
+        torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), 2.0)
         loss = criterion(output, target)
         loss.backward()
         optimizer.step()
-
         running_loss += loss.item()
-        _, predicted = torch.max(output.data, 1)
-        loop.set_description(f"Epoch {epoch+1}")
-        loop.set_postfix(loss = loss.item())
 
-    print(f'\nTrain set: Average loss: {running_loss/len(train_loader):.4f}')
+    print(f'\nTrain set: Average loss: {running_loss/len(train_loader):.6f}')
 
 
-def validation(model, criterion, valid_loader):
+def validation(model, criterion, valid_loader, device):
     model.eval()
     running_loss = 0
     correct = 0
 
     with torch.no_grad():
-        loop = tqdm(valid_loader, total=len(valid_loader))
-        for data, target in loop:
+        for data, target in tqdm.tqdm(valid_loader, total=len(valid_loader), desc="Validation Loop"):
             data, target = data.to(device), target.to(device)
             output = model(data)
             loss = criterion(output, target)
             running_loss += loss.item()
             _, predicted = torch.max(output.data, 1)
 
-    print(f'\nValidation set: Average loss: {running_loss/len(valid_loader):.4f}')
+    print(f'\nValidation set: Average loss: {running_loss/len(valid_loader):.6f}')
 
 
 def infer(image_path, model, device, img_transform):

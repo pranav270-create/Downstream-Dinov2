@@ -2,3 +2,8 @@
 /data/segmentation/train/*
 .ipynb_checkpoints
 __pycache__
+*.pt
+*.pth
+*.png
+*.jpg
+*.jpeg
