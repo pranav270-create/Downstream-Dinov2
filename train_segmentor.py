@@ -11,12 +11,12 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
 
-wandb.init(project="segmentation")
+wandb.init(project="clothing-seg")
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
-base_size = (128, 128)
+base_size = (64, 64)
 img_transform = transforms.Compose([
     transforms.Resize((14*base_size[0], 14*base_size[1]), interpolation=transforms.InterpolationMode.BILINEAR),
     transforms.ToTensor(),
@@ -29,34 +29,35 @@ mask_transform = transforms.Compose([
 ])
 
 
-num_classes = 47
-dataset = SegmentationDataset(img_dir="data/train", mask_dir="data/masks", num_classes = num_classes, img_transform=img_transform, mask_transform=mask_transform)
+num_classes = 46  # Ignore background so 0 to 45
+dataset = SegmentationDataset(img_dir="data/train", mask_dir="data/masks", num_classes=num_classes, img_transform=img_transform, mask_transform=mask_transform)
 
 # Splitting data into train and validation sets
 train_imgs, valid_imgs = train_test_split(dataset.images, test_size=0.2, random_state=42)
 # valid_imgs, test_imgs = train_test_split(valid_imgs, test_size=0.999, random_state=42)
 print(len(train_imgs))
 
-train_dataset = SegmentationDataset(img_dir="data/train", mask_dir="data/masks", num_classes = num_classes, img_transform=img_transform, mask_transform=mask_transform, images=train_imgs)
-valid_dataset = SegmentationDataset(img_dir="data/train", mask_dir="data/masks", num_classes = num_classes, img_transform=img_transform, mask_transform=mask_transform, images=valid_imgs)
+train_dataset = SegmentationDataset(img_dir="data/train", mask_dir="data/masks", num_classes=num_classes, img_transform=img_transform, mask_transform=mask_transform, images=train_imgs)
+valid_dataset = SegmentationDataset(img_dir="data/train", mask_dir="data/masks", num_classes=num_classes, img_transform=img_transform, mask_transform=mask_transform, images=valid_imgs)
 
-train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, pin_memory=True)
-valid_loader = DataLoader(train_dataset, batch_size=8, pin_memory=True)
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, pin_memory=True)
+valid_loader = DataLoader(valid_dataset, batch_size=32, pin_memory=True)
 
 model = Segmentor(num_classes)
 model = model.to(device)
 
-optimizer = optim.Adam(model.trainable_parameters(), lr=0.0001)
-criterion = torch.nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.trainable_parameters(), lr=3e-4)
+criterion = torch.nn.CrossEntropyLoss(ignore_index=num_classes)  # The last one is background
 
 num_epochs = 2
 for epoch in range(num_epochs):
     train(model, train_loader, criterion, optimizer, epoch, device)
     validation(model, criterion, valid_loader, device)
-    torch.save(model.state_dict(), f'weights/segmentation_model_{epoch}')
+    torch.save(model.state_dict(), f'weights/segmentation_model_r2_{epoch}.pt')
 
 # load state dict
-model.load_state_dict(torch.load(f'weights/segmentation_model_{epoch}.pt'))
+epoch = 0
+model.load_state_dict(torch.load(f'weights/segmentation_model_r2_{epoch}.pt'))
 
 # now infer on a random image from the dataset
 img = "/home/ubuntu/Downstream-Dinov2/data/train/0a0a539316af6547b3bbe228ead13730.jpg"

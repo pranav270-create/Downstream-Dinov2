@@ -56,8 +56,9 @@ def train(model, train_loader, criterion, optimizer, epoch, device):
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
+        wandb.log({"train_batch_loss": loss.item()})
 
-    wandb.log({"train_loss": running_loss/len(train_loader)})
+    wandb.log({"train_epoch_loss": running_loss/len(train_loader)})
     print(f'\nTrain set: Average loss: {running_loss/len(train_loader):.6f}')
 
 
@@ -106,7 +107,7 @@ def infer(image_path, model, device, img_transform):
 
         # Get the predicted class for each pixel
         _, predicted = torch.max(output, 1)
-    
+
     # Move prediction to cpu and convert to numpy array
     predicted = predicted.squeeze().cpu().numpy()
 
