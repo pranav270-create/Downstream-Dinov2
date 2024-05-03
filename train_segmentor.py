@@ -20,6 +20,7 @@ base_size = (64, 64)
 img_transform = transforms.Compose([
     transforms.Resize((14*base_size[0], 14*base_size[1]), interpolation=transforms.InterpolationMode.BILINEAR),
     transforms.ToTensor(),
+    # transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 
@@ -46,23 +47,29 @@ valid_loader = DataLoader(valid_dataset, batch_size=8, pin_memory=True, num_work
 model = Segmentor(num_classes, backbone='dinov2_l')
 model = model.to(device)
 
-optimizer = optim.Adam(model.trainable_parameters(), lr=3e-4)
+optimizer = optim.Adam(model.trainable_parameters(), lr=1e-4)
 weights = torch.ones(num_classes)
 weights[-1] = 0.1  # Reduce the weight for the background class
 criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
 
-num_epochs = 10
-for epoch in range(num_epochs):
-    train(model, train_loader, criterion, optimizer, epoch, device)
-    validation(model, criterion, valid_loader, device)
-    torch.save(model.state_dict(), f'weights/segmentation_model_dinol_convl_{epoch}.pt')
+# load state dict
+start_epoch = 3
+model.load_state_dict(torch.load(f'weights/segmentation_model_dinol_convl_{start_epoch}.pt'))
+
+# num_epochs = 10
+# for epoch in range(num_epochs):
+#     train(model, train_loader, criterion, optimizer, epoch, device)
+#     validation(model, criterion, valid_loader, device)
+#     torch.save(model.state_dict(), f'weights/segmentation_model_dinol_convl_{epoch + start_epoch + 1}.pt')
 
 # load state dict
-model.load_state_dict(torch.load(f'weights/segmentation_model_dinol_convl_{epoch}.pt'))
+model.load_state_dict(torch.load(f'weights/segmentation_model_dinol_convl_5.pt'))
 
 # now infer on a random image from the dataset
-img = "/home/ubuntu/Downstream-Dinov2/data/train/0a0a539316af6547b3bbe228ead13730.jpg"
-mask_label = "/home/ubuntu/Downstream-Dinov2/data/masks/0a0a539316af6547b3bbe228ead13730.png"
+imfile = "0a0a539316af6547b3bbe228ead13730"
+imfile = "0a3b844ecf59d6039f7e4915e5d4ac41"
+img = f"/home/ubuntu/Downstream-Dinov2/data/train/{imfile}.jpg"
+mask_label = f"/home/ubuntu/Downstream-Dinov2/data/masks/{imfile}.png"
 mask_label = (mask_transform(Image.open(mask_label)) * 255).cpu().squeeze().permute(1, 2, 0).numpy().astype(np.uint8)[:, :, 0]
 img, mask = infer(img, model, device, img_transform)
 # they are numpy arrays

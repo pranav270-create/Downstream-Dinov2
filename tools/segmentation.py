@@ -1,10 +1,12 @@
 from PIL import Image
 import torch
+import torch.nn as nn
 from torch.utils.data import Dataset
 import os
 import tqdm
 import wandb
 import numpy as np
+import evaluate
 
 
 class SegmentationDataset(Dataset):
@@ -74,26 +76,30 @@ def train(model, train_loader, criterion, optimizer, epoch, device):
     print(f'\nTrain set: Average loss: {running_loss/len(train_loader):.6f}')
 
 
-def batch_intersection_union(output, target, nclass, ignore_index=255):
-    """mIoU"""
-    # inputs are numpy array, output 4D, target 3D
-    mini = 1
-    maxi = nclass
-    nbins = nclass
-    predict = torch.argmax(output, 1) + 1
-    target = target.float() + 1
+metric = evaluate.load("mean_iou")
 
-    mask = (target != (ignore_index + 1)).float()
-    predict = predict.float() * mask
-    intersection = predict * (predict == target).float() * mask
-    # areas of intersection and union
-    # element 0 in intersection occur the main difference from np.bincount. set boundary to -1 is necessary.
-    area_inter = torch.histc(intersection.cpu(), bins=nbins, min=mini, max=maxi)
-    area_pred = torch.histc(predict.cpu(), bins=nbins, min=mini, max=maxi)
-    area_lab = torch.histc(mask.cpu(), bins=nbins, min=mini, max=maxi)
-    area_union = area_pred + area_lab - area_inter
-    # assert torch.sum(area_inter > area_union).item() == 0, "Intersection area should be smaller than Union area"
-    return area_inter.float(), area_union.float()
+def compute_metrics(logits, labels, num_labels, ignore_index):
+    with torch.no_grad():
+        logits_tensor = torch.from_numpy(logits)
+        logits_tensor = nn.functional.interpolate(
+            logits_tensor,
+            size=labels.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        ).argmax(dim=1)
+
+        pred_labels = logits_tensor.detach().cpu().numpy()
+        metrics = metric.compute(
+            predictions=pred_labels,
+            references=labels,
+            num_labels=num_labels,
+            ignore_index=ignore_index,
+            reduce_labels=False,
+        )
+        for key, value in metrics.items():
+            if isinstance(value, np.ndarray):
+                metrics[key] = value.tolist()
+        return metrics
 
 
 def batch_pix_accuracy(output, target, ignore_index):
@@ -122,9 +128,8 @@ def validation(model, criterion, valid_loader, device):
             loss = criterion(output, target)
             running_loss += loss.item()
             # Calculate mIoU
-            iou_score = batch_intersection_union(output, target, nclass=47, ignore_index=46)
-            avg_iou = torch.mean(iou_score[0] / iou_score[1]).item()
-            total_iou += avg_iou
+            iou_score = compute_metrics(output, target, num_labels=47, ignore_index=46)['mean_iou']
+            total_iou += iou_score
             pix_acc = batch_pix_accuracy(output, target, ignore_index=46)
             correct += pix_acc[0] / pix_acc[1]
 
