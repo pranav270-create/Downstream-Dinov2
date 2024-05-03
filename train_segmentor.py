@@ -29,7 +29,7 @@ mask_transform = transforms.Compose([
 ])
 
 
-num_classes = 46  # Ignore background so 0 to 45
+num_classes = 47  # Ignore background so 0 to 45
 dataset = SegmentationDataset(img_dir="data/train", mask_dir="data/masks", num_classes=num_classes, img_transform=img_transform, mask_transform=mask_transform)
 
 # Splitting data into train and validation sets
@@ -40,24 +40,25 @@ print(len(train_imgs))
 train_dataset = SegmentationDataset(img_dir="data/train", mask_dir="data/masks", num_classes=num_classes, img_transform=img_transform, mask_transform=mask_transform, images=train_imgs)
 valid_dataset = SegmentationDataset(img_dir="data/train", mask_dir="data/masks", num_classes=num_classes, img_transform=img_transform, mask_transform=mask_transform, images=valid_imgs)
 
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, pin_memory=True)
-valid_loader = DataLoader(valid_dataset, batch_size=32, pin_memory=True)
+train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, pin_memory=True, num_workers=8)
+valid_loader = DataLoader(valid_dataset, batch_size=16, pin_memory=True, num_workers=8)
 
-model = Segmentor(num_classes)
+model = Segmentor(num_classes, backbone='dinov2_l')
 model = model.to(device)
 
 optimizer = optim.Adam(model.trainable_parameters(), lr=3e-4)
-criterion = torch.nn.CrossEntropyLoss(ignore_index=num_classes)  # The last one is background
+weights = torch.ones(num_classes)
+weights[-1] = 0.3  # Reduce the weight for the background class
+criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
 
 num_epochs = 2
 for epoch in range(num_epochs):
     train(model, train_loader, criterion, optimizer, epoch, device)
     validation(model, criterion, valid_loader, device)
-    torch.save(model.state_dict(), f'weights/segmentation_model_r2_{epoch}.pt')
+    torch.save(model.state_dict(), f'weights/segmentation_model_dinol_{epoch}.pt')
 
 # load state dict
-epoch = 0
-model.load_state_dict(torch.load(f'weights/segmentation_model_r2_{epoch}.pt'))
+model.load_state_dict(torch.load(f'weights/segmentation_model_dinol_{epoch}.pt'))
 
 # now infer on a random image from the dataset
 img = "/home/ubuntu/Downstream-Dinov2/data/train/0a0a539316af6547b3bbe228ead13730.jpg"

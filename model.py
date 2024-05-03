@@ -5,22 +5,22 @@ from torch.hub import load
 
 dino_backbones = {
     'dinov2_s': {
-        'name': 'dinov2_vits14',
+        'name': 'dinov2_vits14_reg',
         'embedding_size': 384,
         'patch_size': 14
     },
     'dinov2_b': {
-        'name': 'dinov2_vitb14',
+        'name': 'dinov2_vitb14_reg',
         'embedding_size': 768,
         'patch_size': 14
     },
     'dinov2_l': {
-        'name': 'dinov2_vitl14',
+        'name': 'dinov2_vitl14_reg',
         'embedding_size': 1024,
         'patch_size': 14
     },
     'dinov2_g': {
-        'name': 'dinov2_vitg14',
+        'name': 'dinov2_vitg14_reg',
         'embedding_size': 1536,
         'patch_size': 14
     },
@@ -39,7 +39,7 @@ class linear_head(nn.Module):
 class conv_head(nn.Module):
     def __init__(self, embedding_size=384, num_classes=47):
         super(conv_head, self).__init__()
-        hidden_layer_size = 128
+        hidden_layer_size = 256
         self.segmentation_conv = nn.Sequential(
             # nn.GroupNorm(32, embedding_size),
             nn.Upsample(scale_factor=2, mode='bilinear'),
@@ -47,6 +47,9 @@ class conv_head(nn.Module):
             # nn.GroupNorm(32, hidden_layer_size),
             nn.Upsample(scale_factor=2, mode='bilinear'),
             nn.Conv2d(hidden_layer_size, num_classes, (3, 3), padding=(1, 1)),
+            # nn.GroupNorm(32, hidden_layer_size*2),
+            # nn.Upsample(scale_factor=2, mode='bilinear'),
+            # nn.Conv2d(hidden_layer_size*2, num_classes, (3, 3), padding=(1, 1)),
         )
         # Initialize weights
         self._initialize_weights()
@@ -60,7 +63,7 @@ class conv_head(nn.Module):
 
     def forward(self, x):
         x = self.segmentation_conv(x)
-        x = torch.sigmoid(x)  # batch_size x num_classes x H x W
+        # x = torch.softmax(x, dim=1)
         return x
 
 

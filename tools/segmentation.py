@@ -43,6 +43,11 @@ class SegmentationDataset(Dataset):
         return image, mask
 
 
+from torch.cuda.amp import autocast, GradScaler
+
+scaler = GradScaler()
+
+
 def train(model, train_loader, criterion, optimizer, epoch, device):
     model.train()
     running_loss = 0
@@ -50,16 +55,24 @@ def train(model, train_loader, criterion, optimizer, epoch, device):
     for batch_idx, (data, target) in tqdm.tqdm(enumerate(train_loader), total=len(train_loader), desc="Training Loop"):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
-        output = model(data)
-        torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), 2.0)
-        loss = criterion(output, target)
-        loss.backward()
-        optimizer.step()
+        with autocast():
+            outputs = model(data)
+            loss = criterion(outputs, target)
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+
+        # output = model(data)
+        # torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), 2.0)
+        # loss = criterion(output, target)
+        # loss.backward()
+        # optimizer.step()
         running_loss += loss.item()
         wandb.log({"train_batch_loss": loss.item()})
 
     wandb.log({"train_epoch_loss": running_loss/len(train_loader)})
     print(f'\nTrain set: Average loss: {running_loss/len(train_loader):.6f}')
+
 
 
 def calculate_miou(target, predicted):
