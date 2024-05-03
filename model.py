@@ -41,15 +41,15 @@ class conv_head(nn.Module):
         super(conv_head, self).__init__()
         hidden_layer_size = 256
         self.segmentation_conv = nn.Sequential(
-            # nn.GroupNorm(32, embedding_size),
+            nn.GroupNorm(32, embedding_size),
             nn.Upsample(scale_factor=2, mode='bilinear'),
             nn.Conv2d(embedding_size, hidden_layer_size, (3, 3), padding=(1, 1)),
-            # nn.GroupNorm(32, hidden_layer_size),
+            nn.GroupNorm(32, hidden_layer_size),
             nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(hidden_layer_size, num_classes, (3, 3), padding=(1, 1)),
-            # nn.GroupNorm(32, hidden_layer_size*2),
-            # nn.Upsample(scale_factor=2, mode='bilinear'),
-            # nn.Conv2d(hidden_layer_size*2, num_classes, (3, 3), padding=(1, 1)),
+            nn.Conv2d(hidden_layer_size, hidden_layer_size*2, (3, 3), padding=(1, 1)),
+            nn.GroupNorm(32, hidden_layer_size*2),
+            nn.Upsample(scale_factor=2, mode='bilinear'),
+            nn.Conv2d(hidden_layer_size*2, num_classes, (3, 3), padding=(1, 1)),
         )
         # Initialize weights
         self._initialize_weights()

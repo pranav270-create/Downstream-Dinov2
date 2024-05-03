@@ -122,15 +122,15 @@ def validation(model, criterion, valid_loader, device):
             loss = criterion(output, target)
             running_loss += loss.item()
             # Calculate mIoU
-            iou_score = batch_intersection_union(output, target, n_class=47, ignore_index=46)
+            iou_score = batch_intersection_union(output, target, nclass=47, ignore_index=46)
             avg_iou = torch.mean(iou_score[0] / iou_score[1]).item()
             total_iou += avg_iou
             pix_acc = batch_pix_accuracy(output, target, ignore_index=46)
             correct += pix_acc[0] / pix_acc[1]
 
-    wandb.log({"val_loss": running_loss/len(valid_loader)})
-    wandb.log({"val_accuracy": correct/len(valid_loader)})
-    wandb.log({"val_mIoU": total_iou/len(valid_loader)})
+        wandb.log({"val_loss": running_loss/len(valid_loader)})
+        wandb.log({"val_accuracy": correct/len(valid_loader)})
+        wandb.log({"val_mIoU": total_iou/len(valid_loader)})
     print(f'\nValidation set: Average loss: {running_loss/len(valid_loader):.6f}')
 
 
