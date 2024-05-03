@@ -29,7 +29,7 @@ mask_transform = transforms.Compose([
 ])
 
 
-num_classes = 47  # Ignore background so 0 to 45
+num_classes = 47
 dataset = SegmentationDataset(img_dir="data/train", mask_dir="data/masks", num_classes=num_classes, img_transform=img_transform, mask_transform=mask_transform)
 
 # Splitting data into train and validation sets

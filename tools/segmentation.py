@@ -74,12 +74,39 @@ def train(model, train_loader, criterion, optimizer, epoch, device):
     print(f'\nTrain set: Average loss: {running_loss/len(train_loader):.6f}')
 
 
+def batch_intersection_union(output, target, nclass, ignore_index=255):
+    """mIoU"""
+    # inputs are numpy array, output 4D, target 3D
+    mini = 1
+    maxi = nclass
+    nbins = nclass
+    predict = torch.argmax(output, 1) + 1
+    target = target.float() + 1
 
-def calculate_miou(target, predicted):
-    intersection = np.logical_and(target, predicted)
-    union = np.logical_or(target, predicted)
-    iou_score = np.sum(intersection) / np.sum(union)
-    return iou_score
+    mask = (target != (ignore_index + 1)).float()
+    predict = predict.float() * mask
+    intersection = predict * (predict == target).float() * mask
+    # areas of intersection and union
+    # element 0 in intersection occur the main difference from np.bincount. set boundary to -1 is necessary.
+    area_inter = torch.histc(intersection.cpu(), bins=nbins, min=mini, max=maxi)
+    area_pred = torch.histc(predict.cpu(), bins=nbins, min=mini, max=maxi)
+    area_lab = torch.histc(mask.cpu(), bins=nbins, min=mini, max=maxi)
+    area_union = area_pred + area_lab - area_inter
+    # assert torch.sum(area_inter > area_union).item() == 0, "Intersection area should be smaller than Union area"
+    return area_inter.float(), area_union.float()
+
+
+def batch_pix_accuracy(output, target, ignore_index):
+    """PixAcc"""
+    # inputs are numpy array, output 4D, target 3D
+    predict = torch.argmax(output.long(), 1) + 1
+    target = target.long() + 1
+    mask = (target != (ignore_index + 1))
+
+    pixel_labeled = torch.sum(mask).item()
+    pixel_correct = torch.sum((predict == target) * mask).item()
+    # assert pixel_correct <= pixel_labeled, "Correct area should be smaller than Labeled"
+    return pixel_correct, pixel_labeled
 
 
 def validation(model, criterion, valid_loader, device):
@@ -94,11 +121,12 @@ def validation(model, criterion, valid_loader, device):
             output = model(data)
             loss = criterion(output, target)
             running_loss += loss.item()
-            _, predicted = torch.max(output, 1)
-            correct += (predicted == target).sum().item()
             # Calculate mIoU
-            iou_score = calculate_miou(target.cpu().numpy(), predicted.cpu().numpy())
-            total_iou += iou_score
+            iou_score = batch_intersection_union(output, target, n_class=47, ignore_index=46)
+            avg_iou = torch.mean(iou_score[0] / iou_score[1]).item()
+            total_iou += avg_iou
+            pix_acc = batch_pix_accuracy(output, target, ignore_index=46)
+            correct += pix_acc[0] / pix_acc[1]
 
     wandb.log({"val_loss": running_loss/len(valid_loader)})
     wandb.log({"val_accuracy": correct/len(valid_loader)})
