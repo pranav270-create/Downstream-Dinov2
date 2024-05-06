@@ -9,42 +9,6 @@ import numpy as np
 import evaluate
 
 
-class SegmentationDataset(Dataset):
-    def __init__(self, img_dir, mask_dir, num_classes, img_transform=None, mask_transform=None, images=None):
-        self.img_dir = img_dir
-        self.mask_dir = mask_dir
-        self.img_transform = img_transform
-        self.mask_transform = mask_transform
-        self.num_classes = num_classes
-
-        # Only include images for which a mask is found
-        if images is None:
-            self.images = [img for img in os.listdir(img_dir) if os.path.isfile(os.path.join(mask_dir, img.split(".")[0] + ".png"))]
-        else:
-            self.images = images
-
-    def __len__(self):
-        return len(self.images)
-
-    def __getitem__(self, idx):
-        img_name = self.images[idx].split(".")[0]
-        img_path = os.path.join(self.img_dir, self.images[idx])
-        mask_path = os.path.join(self.mask_dir, img_name + ".png")
-        image = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path)
-
-        if self.img_transform:
-            image = self.img_transform(image)
-        if self.mask_transform:
-            mask = (self.mask_transform(mask) * 255).long()
-
-        mask, _ = torch.max(mask, dim=0)
-        # bin_mask = torch.zeros(self.num_classes, mask.shape[0], mask.shape[1])
-        # for i in range(self.num_classes):
-            # bin_mask[i] = (mask == i).float()  # Ensure resulting mask is float type
-        return image, mask
-
-
 from torch.cuda.amp import autocast, GradScaler
 
 scaler = GradScaler()
@@ -142,7 +106,7 @@ def validation(model, criterion, valid_loader, device):
 def infer(image_path, model, device, img_transform):
     # Load and transform the image
     image = Image.open(image_path).convert("RGB")
-    transformed_image = img_transform(image).unsqueeze(0).to(device)  # Add batch dimension and move to device
+    transformed_image = img_transform(image).unsqueeze(0).to(device)
 
     # Make sure the model is in evaluation mode
     model.eval()
@@ -155,6 +119,6 @@ def infer(image_path, model, device, img_transform):
         _, predicted = torch.max(output, 1)
 
     # Move prediction to cpu and convert to numpy array
-    predicted = predicted.squeeze().cpu().numpy()
+    predicted = predicted.cpu().numpy()
 
     return transformed_image.cpu().squeeze().permute(1, 2, 0).numpy(), predicted

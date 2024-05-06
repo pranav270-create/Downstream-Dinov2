@@ -5,7 +5,9 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from torch import optim
 from model import Segmentor
-from tools.segmentation import SegmentationDataset, train, validation, infer
+from train_test_loop import train, validation, infer
+from dataset import SegmentationDataset
+
 import wandb
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -56,11 +58,11 @@ criterion = torch.nn.CrossEntropyLoss(weight=weights.to(device))
 start_epoch = 3
 model.load_state_dict(torch.load(f'weights/segmentation_model_dinol_convl_{start_epoch}.pt'))
 
-# num_epochs = 10
-# for epoch in range(num_epochs):
-#     train(model, train_loader, criterion, optimizer, epoch, device)
-#     validation(model, criterion, valid_loader, device)
-#     torch.save(model.state_dict(), f'weights/segmentation_model_dinol_convl_{epoch + start_epoch + 1}.pt')
+num_epochs = 10
+for epoch in range(num_epochs):
+    train(model, train_loader, criterion, optimizer, epoch, device)
+    validation(model, criterion, valid_loader, device)
+    torch.save(model.state_dict(), f'weights/segmentation_model_dinol_convl_{epoch + start_epoch + 1}.pt')
 
 # load state dict
 model.load_state_dict(torch.load(f'weights/segmentation_model_dinol_convl_5.pt'))

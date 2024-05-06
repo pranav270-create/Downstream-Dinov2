@@ -3,19 +3,26 @@
 
 """Example script to train a Dinov2 + Segmentation Head model for semantic segmentation."""
 
+"""TODO:
+1) ViT Implementation
+3) MaskFormer
+4) More augmentations?
+"""
+
 import argparse
 import logging
 import os
 
 import torch
 import torchvision
+from torchvision.ops import sigmoid_focal_loss
 from torch.utils.data import DataLoader
 from torchmetrics import MetricCollection
 from torchvision import transforms
 from torchvision.transforms.functional import InterpolationMode
 
 from composer import DataSpec, Time, Trainer
-from composer.algorithms import EMA, SAM, ChannelsLast, MixUp, ProgressiveResizing, LayerFreezing
+from composer.algorithms import EMA, SAM, ChannelsLast, MixUp, ProgressiveResizing, LayerFreezing, LowPrecisionGroupNorm, LowPrecisionLayerNorm
 from composer.callbacks import CheckpointSaver, ImageVisualizer, LRMonitor, SpeedMonitor
 # from composer.datasets.ade20k import (ADE20k, PadToSize, PhotometricDistoration, RandomCropPair, RandomHFlipPair,
 #                                       RandomResizePair)
@@ -31,7 +38,7 @@ from composer.utils import dist
 from sklearn.model_selection import train_test_split
 
 from model import Segmentor
-from tools.segmentation import SegmentationDataset
+from dataset import SegmentationDataset
 
 logging.basicConfig()
 logging.getLogger().setLevel(logging.INFO)
@@ -45,8 +52,8 @@ parser.add_argument('--download',
                     action='store_true')
 parser.add_argument('--train_resize_size', help='Training image resize size', type=int, default=896)
 parser.add_argument('--eval_resize_size', help='Evaluation image resize size', type=int, default=896)
-parser.add_argument('--train_batch_size', help='Train dataloader per-device batch size', type=int, default=4)
-parser.add_argument('--eval_batch_size', help='Validation dataloader per-device batch size', type=int, default=4)
+parser.add_argument('--train_batch_size', help='Train dataloader per-device batch size', type=int, default=1)
+parser.add_argument('--eval_batch_size', help='Validation dataloader per-device batch size', type=int, default=1)
 
 # Model command-line arguments
 parser.add_argument('--backbone_arch',
@@ -58,6 +65,7 @@ parser.add_argument('--sync_bn',
                     action='store_true')
 parser.add_argument('--cross_entropy_weight', help='Weight to scale the cross entropy loss', type=float, default=0.375)
 parser.add_argument('--dice_weight', help='Weight to scale the dice loss', type=float, default=1.125)
+parser.add_argument('--focal_weight', help='Weight to scale the focal loss', type=float, default=1.5)
 
 # Optimizer command-line arguments
 parser.add_argument('--learning_rate', help='Optimizer learning rate', type=float, default=1e-4)
@@ -104,8 +112,8 @@ args = parser.parse_args()
 IMAGENET_CHANNEL_MEAN = (int(0.485 * 255), int(0.456 * 255), int(0.406 * 255))
 IMAGENET_CHANNEL_STD = (int(0.229 * 255), int(0.224 * 255), int(0.225 * 255))
 
-ADE20K_URL = 'http://data.csail.mit.edu/places/ADEchallenge/ADEChallengeData2016.zip'
-ADE20K_FILE = 'ADEChallengeData2016.zip'
+# ADE20K_URL = 'http://data.csail.mit.edu/places/ADEchallenge/ADEChallengeData2016.zip'
+# ADE20K_FILE = 'ADEChallengeData2016.zip'
 
 
 def _main():
@@ -157,16 +165,15 @@ def _main():
     # Training transforms applied to the target only
     # train_target_transforms = PadToSize(size=(args.train_resize_size, args.train_resize_size), fill=0)
 
-    base_size = (64, 64)
+    base_size = (32, 32)
     img_transform = transforms.Compose([
         transforms.Resize((14*base_size[0], 14*base_size[1]), interpolation=transforms.InterpolationMode.BILINEAR),
         transforms.ToTensor(),
         transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-
     mask_transform = transforms.Compose([
-        transforms.Resize((base_size[0]*8, base_size[1]*8), interpolation=transforms.InterpolationMode.NEAREST),
+        transforms.Resize((8*base_size[0], 8*base_size[1]), interpolation=transforms.InterpolationMode.NEAREST),
         transforms.ToTensor(),
     ])
     num_classes = 47
@@ -244,8 +251,10 @@ def _main():
     logging.info('Built validation dataset\n')
 
     # Create a model
-    model = Segmentor(47, backbone='dinov2_l')
-    model.load_state_dict(torch.load(f'weights/segmentation_model_dinol_convl_5.pt'))
+    model = Segmentor(num_classes, backbone='dinov2_l', head="residual_depth_conv")
+    # loadpath = "checkpoints/mosaic_seg/ep2-ba18078-rank0.pt"
+    # model.load_state_dict(torch.load(loadpath))
+    # model = torch.compile(model)
 
     # Initialize the classifier head only since the backbone uses pre-trained weights
     # def weight_init(module: torch.nn.Module):
@@ -262,14 +271,15 @@ def _main():
     dice_loss_fn = DiceLoss(softmax=True, batch=True, ignore_absent_classes=True)
 
     weights = torch.ones(num_classes)
-    weights[-1] = 0.1  # Reduce the weight for the background class
+    weights[-1] = 0.01  # Reduce the weight for the background class
     weight_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     nn_cross_entropy = torch.nn.CrossEntropyLoss(weight=weights.to(weight_device))
     def combo_loss(output, target):
         loss = {}
         loss['cross_entropy'] = nn_cross_entropy(output, target)
         loss['dice'] = dice_loss_fn(output, target)
-        loss['total'] = args.cross_entropy_weight * loss['cross_entropy'] + args.dice_weight * loss['dice']
+        loss['focal'] = sigmoid_focal_loss(output, target, 0.25, 2.0, reduction='mean')
+        loss['total'] = args.cross_entropy_weight * loss['cross_entropy'] + args.dice_weight * loss['dice'] + args.focal_weight * loss['focal']
         return loss
 
     # Training and Validation metrics to log throughout training
@@ -326,7 +336,6 @@ def _main():
         algorithms = [
             ChannelsLast(),
             EMA(half_life='1000ba', update_interval='10ba'),
-            progressive_resizing_algorithm
         ]
     elif args.recipe_name == 'medium':
         algorithms = [
@@ -367,7 +376,7 @@ def _main():
     logging.info('Building Trainer')
     device = 'gpu' if torch.cuda.is_available() else 'cpu'
     precision = 'amp_fp16' if device == 'gpu' else 'fp32'  # Mixed precision for fast training when using a GPU
-    # grad_accum = 'auto' if device == 'gpu' else args.grad_accum  # If on GPU, use 'auto' gradient accumulation
+    grad_accum = 'auto' if device == 'gpu' else args.grad_accum  # If on GPU, use 'auto' gradient accumulation
     trainer = Trainer(run_name=args.run_name,
                       model=composer_model,
                       train_dataloader=train_dataspec,
@@ -379,10 +388,11 @@ def _main():
                       loggers=logger,
                       max_duration=args.max_duration,
                       callbacks=callbacks,
-                      load_path=args.load_checkpoint_path,
+                    #   load_path=args.load_checkpoint_path,
                       device=device,
+                      device_train_microbatch_size=4,
                       precision=precision,
-                    #   grad_accum=grad_accum,
+                    #   load_weights_only=True,
                       seed=args.seed)
     logging.info('Built Trainer\n')
 
