@@ -200,6 +200,7 @@ def _main():
         train_dataset,
         batch_size=args.train_batch_size,
         num_workers=8,
+        shuffle=True,
         pin_memory=True,
         drop_last=True,  # Prevents using a smaller batch at the end of an epoch
         sampler=train_sampler,
