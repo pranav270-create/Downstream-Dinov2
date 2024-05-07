@@ -105,7 +105,7 @@ parser.add_argument('--seed', help='Random seed', type=int, default=42)
 parser.add_argument('--max_duration',
                     help='Duration to train specified as a Time string',
                     type=Time.from_timestring,
-                    default='128ep')
+                    default='10ep')
 
 args = parser.parse_args()
 
@@ -203,7 +203,7 @@ def _main():
         shuffle=True,
         pin_memory=True,
         drop_last=True,  # Prevents using a smaller batch at the end of an epoch
-        sampler=train_sampler,
+        # sampler=train_sampler,
         # collate_fn=pil_image_collate,
         persistent_workers=True,
     )
@@ -389,11 +389,11 @@ def _main():
                       loggers=logger,
                       max_duration=args.max_duration,
                       callbacks=callbacks,
-                    #   load_path=args.load_checkpoint_path,
+                      load_path=args.load_checkpoint_path,
                       device=device,
-                      device_train_microbatch_size=4,
+                      device_train_microbatch_size=8,
                       precision=precision,
-                    #   load_weights_only=True,
+                      load_weights_only=True,
                       seed=args.seed)
     logging.info('Built Trainer\n')
 

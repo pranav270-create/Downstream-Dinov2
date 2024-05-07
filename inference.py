@@ -11,10 +11,10 @@ from train_test_loop import infer
 
 device = torch.device('cuda')
 
-model = Segmentor(47, backbone='dinov2_l', head='depth_conv')
+model = Segmentor(47, backbone='dinov2_l', head='residual_depth_conv')
 model = model.to(device)
 
-loadpath = 'weights/mosaic_seg_d_conv_lg.pt'
+loadpath = 'weights/mosaic_seg_residual_d_conv_lg.pt'
 torch_dict = torch.load(loadpath)
 model.load_state_dict(torch_dict)
 
@@ -42,6 +42,7 @@ inverse_transform = transforms.Compose([
 import os
 train_path = "/home/ubuntu/Downstream-Dinov2/data/train"
 save_path = "/home/ubuntu/Downstream-Dinov2/examples"
+os.makedirs(save_path + '/predicted', exist_ok=True)
 count = 0
 for imfile in sorted(os.listdir(train_path)):
     if count > 10:
